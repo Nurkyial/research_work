@@ -145,13 +145,16 @@ class Ui_MainWindow(object):
             return file
 
     def match_button(self):
-        #self.path = "C:\\Users\\Пользователь\\Documents\\ex.xlsx"
-
         if self.file_path is not None:
-            self.write = XLSReader(self.file_path)
+            self.write = XLSReader(self, self.file_path)
             print(self.write.data_dict)
         else:
             print("No file selected. Please choose a file")
+
+    # finding the current item in the combobox
+    def find(self):
+        self.content = self.comboBox.currentText()
+        return int(self.content)
 
 
     def retranslateUi(self, MainWindow):
@@ -171,10 +174,13 @@ class Ui_MainWindow(object):
 
 
 
+
 class XLSReader:
-    def __init__(self, file):
+    def __init__(self, ui_instance, file):
+        self.ui_instance = ui_instance
         self.xls = pd.ExcelFile(file)
-        self.course = 6 + 3
+        self.semester = Ui_MainWindow()
+        self.course = 6 + self.ui_instance.find() // 2
         self.column = [2, 11, 12, 21, 22]
         self.start = 5
         self.end = 30
