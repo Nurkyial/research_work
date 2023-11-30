@@ -11,6 +11,8 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QComboBox
 import pandas as pd
+import math
+import numpy as np
 
 
 class Ui_MainWindow(object):
@@ -179,28 +181,43 @@ class XLSReader:
     def __init__(self, ui_instance, file):
         self.ui_instance = ui_instance
         self.xls = pd.ExcelFile(file)
-        self.semester = Ui_MainWindow()
-        self.course = 6 + self.ui_instance.find() // 2
-        self.column = [2, 11, 12, 21, 22]
+        self.course = 6 + self.ui_instance.find() / 2
+        #self.column = [2, 11, 12, 21, 22]
         self.start = 5
-        self.end = 30
-        self.save_to_dict(self.course, column_indices=self.column, row_start=self.start, row_end=self.end)
+        self.end = 30  # under question???
+        self.save_to_dict(self.course, row_start=self.start, row_end=self.end)
 
-    def save_to_dict(self, course, column_indices=None, row_start=None, row_end=None):
+    def save_to_dict(self, course, row_start=None, row_end=None):
+        self.column = [2, 11, 12, 21, 22]
         self.data_dict = {}
+        cnt = 0
+        if course == 6.5:
+            self.column_indices = self.column[0:3]
+            self.tcourse = int(course) + 1
+            print(self.tcourse, course)
+        elif course - int(course) == 0.5:
+            self.column_indices = self.column
+            self.tcourse = int(course) + 1
+            flag = False
+        else:
+            self.tcourse = int(course)
+            self.column_indices = self.column
+
 
         # Iterate through each sheet
-        for sheet_name in self.xls.sheet_names[6:course]:
-
+        for sheet_name in self.xls.sheet_names[6:self.tcourse]:
+            cnt += 1
+            if cnt == self.tcourse - 6 and course - int(course) == 0.5:
+                self.column_indices = self.column[0:3]
             # Read the sheet into a DataFrame
             self.df = pd.read_excel(self.xls, sheet_name)
 
             # If column_indices is not provided, use all the columns
-            if column_indices is None:
+            if self.column_indices is None:
                 column_indices = range(len(self.df.columns))
 
             # Validate column indices
-            if any(idx >= len(self.df.columns) for idx in column_indices):
+            if any(idx >= len(self.df.columns) for idx in self.column_indices):
                 raise ValueError("Invalid column index provided.")
 
             # Iterate over rows within the specified range and save it to the dictionary
@@ -211,21 +228,28 @@ class XLSReader:
                 if row_end is not None and index > row_end:
                     break
 
-                for i in range(1, len(column_indices), 2):
-                    key = row.iloc[column_indices[0]]
-                    values = list(row.iloc[i] for i in column_indices[i:i + 2])  # Use the rest as values
+                for i in range(1, len(self.column_indices), 2):
+                    key = row.iloc[self.column_indices[0]]
+                    values = list(row.iloc[i] for i in self.column_indices[i:i + 2])  # Use the rest as values
 
+
+                    if pd.isna(key):
+                        continue
+                    #print(f'Index: {index}, key: {key}, values: {values}')
                     if key not in self.data_dict:
-                        self.data_dict[key] = values
+                        if values[0] != 0:
+                            self.data_dict[key] = values
+                        else:
+                            continue
                     else:
                         if values[0] != 0:
+                            #print(f'Index: {index}, key: {key}, values: {values}')
                             self.data_dict[key][0] += values[0]
                             self.data_dict[key][1] = values[1]
+                        else:
+                            continue
 
         return self.data_dict
-
-
-
 
 if __name__ == "__main__":
     import sys
