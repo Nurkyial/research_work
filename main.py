@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import QComboBox
 import pandas as pd
 import math
 import numpy as np
+import docx
 
 
 class Ui_MainWindow(object):
@@ -48,28 +49,19 @@ class Ui_MainWindow(object):
         self.file2.setFont(font)
         self.file2.setObjectName("file2")
 
-        '''
-        self.progressBar_1 = QtWidgets.QProgressBar(self.centralwidget)
-        self.progressBar_1.setGeometry(QtCore.QRect(100, 140, 230, 25))
-        self.progressBar_1.setProperty("value", 24)
-        self.progressBar_1.setObjectName("progressBar_1")
-        self.progressBar_2 = QtWidgets.QProgressBar(self.centralwidget)
-        self.progressBar_2.setGeometry(QtCore.QRect(100, 200, 230, 25))
-        self.progressBar_2.setProperty("value", 24)
-        self.progressBar_2.setObjectName("progressBar_2")
-        '''
-
         # uploading file1
         self.browse1 = QtWidgets.QPushButton(self.centralwidget)
         self.browse1.setGeometry(QtCore.QRect(360, 140, 93, 28))
         self.browse1.setObjectName("browse1")
         self.browse1.clicked.connect(self.browse1_open)
+        self.browse1.setToolTip("Add student's marks. It must be a docx file")
 
         # uploading file2
         self.browse2 = QtWidgets.QPushButton(self.centralwidget)
         self.browse2.setGeometry(QtCore.QRect(360, 200, 93, 28))
         self.browse2.setObjectName("browse2")
         self.browse2.clicked.connect(self.browse2_open)
+        self.browse2.setToolTip("Add a study plan. It must be a xlsx file.")
 
         # match button for two files
         self.match = QtWidgets.QPushButton(self.centralwidget)
@@ -77,6 +69,7 @@ class Ui_MainWindow(object):
         self.match.setObjectName("match")
         self.match.setStyleSheet('QPushButton {background-color: #00bfff}')
         self.match.clicked.connect(self.match_button)
+        self.match.setToolTip("Eliminate the academic difference.")
 
         # Initialize the file_path attribute
         self.file_path = None
@@ -125,7 +118,6 @@ class Ui_MainWindow(object):
     def resize(self, text):
         max_word = 30
         return text[:max_word] + '...'
-
 
 
     def browse1_open(self):
@@ -250,6 +242,89 @@ class XLSReader:
                             continue
 
         return self.data_dict
+
+
+class DocxReader:
+    def __init__(self, docx_path):
+        self.docx_path = docx_path
+        self.all_subjects = []
+
+    def read_docx(self, semester):
+        cnt_s = 0
+
+        # Open the Word document
+        doc = docx.Document(self.docx_path)
+
+        for table in doc.tables:
+            sem_subjects = {}
+            # Extract data from cells in the first row
+            first_row = table.rows[0].cells[0]
+            first_row_data = first_row.text
+            sem = str(cnt_s + 1) + " " + "семестр"
+
+            #print(first_row_data)
+
+            # Checking if the semester we need is in the table
+            if sem in first_row_data:
+                cnt_s += 1
+                # Find the column indices
+                header_row = table.rows[1]
+                date_column_index = None
+                marks_column_index = None
+
+                for i, cell in enumerate(header_row.cells):
+                    if cell.text.strip().lower() == 'дата сдачи':
+                        date_column_index = i
+                    elif cell.text.strip().lower() == 'оценка (ects)':
+                        marks_column_index = i
+
+                for row in table.rows[2:]:
+                    discipline = row.cells[0].text.strip()
+                    if "зачёт" in discipline:
+                        control = "З"
+                        discipline1 = discipline.replace("(зачёт)", '')
+                    elif "экзамен" in discipline:
+                        control = "Э"
+                        discipline1 = discipline.replace("(экзамен)", '')
+                    elif "аттестация всех разделов" in discipline:
+                        control = "аттестовано"
+                        discipline1 = discipline.replace("(аттестация всех разделов)", '')
+                    else:
+                        control = ''
+                        discipline1 = discipline
+
+                    # Getting the date and marks using identified column indices
+                    date = row.cells[date_column_index].text.strip() if date_column_index is not None else ''
+                    marks = row.cells[marks_column_index].text.strip() if marks_column_index is not None else ''
+
+                    # Create a dictionary
+                    sem_subjects[discipline1] = (control, date, marks)
+
+            if sem_subjects:
+                self.all_subjects.append(sem_subjects)
+            if cnt_s == semester:
+                break
+
+        return self.all_subjects
+
+# Example usage:
+docx_reader = DocxReader('certificate_with_marks.docx')
+semester_data = docx_reader.read_docx(3)
+print(semester_data)
+
+class Match:
+    def __init__(self, docx_data, xls_data):
+        self.complete_match = []
+        self.partially_match = []
+        self.mismatch = []
+        self.match(docx_data, xls_data)
+
+    def match(self, docx_data, xls_data):
+        for docx_semester, docx_subjects in enumerate(docx_data):
+            xls_semester = docx_semester
+
+
+
 
 if __name__ == "__main__":
     import sys

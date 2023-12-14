@@ -2,7 +2,7 @@ import docx
 import os
 
 # open the word document
-doc = docx.Document('C:\\Users\\Польз   ователь\\PycharmProjects\\NIR\\certificate_with_marks.docx')
+doc = docx.Document('certificate_with_marks.docx')
 
 # semester I choose from the app
 semester = 2
