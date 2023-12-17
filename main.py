@@ -128,20 +128,48 @@ class Ui_MainWindow(object):
             self.test_label1.setText(self.resize(file))
             self.test_label1.adjustSize()
             # Update the file path attribute
-            self.file_path = path
+            self.file_path1 = path
+
 
     def browse2_open(self):
         file, name = QtWidgets.QFileDialog.getOpenFileName(self.centralwidget, "Open File", "", "All Files (*);; pdf files (*.pdf)")
-
+        path = str(file)
         if name:
             self.test_label2.setText(self.resize(file))
             self.test_label2.adjustSize()
-            return file
+            self.file_path2 = path
+
+
 
     def match_button(self):
-        if self.file_path is not None:
-            self.write = XLSReader(self, self.file_path)
-            print(self.write.data_dict)
+        # get the file path from the browse functions
+
+        if (self.file_path1 and self.file_path2) is not None:
+            if self.file_path1.endswith('.docx') and self.file_path2.endswith('.xlsx'):
+                self.docx = DocxReader(self, self.file_path1)
+                self.docx_data = self.docx.read_docx()
+                self.xls_data = XLSReader(self, self.file_path2)
+                self.matching = Match()
+                #print(self.matching)
+
+                complete_match, partially_match, mismatch = self.matching.match(self.docx_data, self.xls_data.data_dict)
+                print("Complete Match:", complete_match)
+                print("Partially Match:", partially_match)
+                print("Mismatch:", mismatch)
+
+            elif self.file_path2.endswith('.docx') and self.file_path1.endswith('.xlsx'):
+                self.docx_data = DocxReader(self, self.file_path2)
+                self.xls_data = XLSReader(self, self.file_path1)
+                self.matching = Match()
+
+                complete_match, partially_match, mismatch = self.matching.match(self.docx_data, self.xls_data.data_dict)
+                print("Complete Match:", complete_match)
+                print("Partially Match:", partially_match)
+                print("Mismatch:", mismatch)
+
+            else:
+                print("Invalid file types. Please choose a DOCX and an Excel file.")
+
         else:
             print("No file selected. Please choose a file")
 
@@ -245,11 +273,14 @@ class XLSReader:
 
 
 class DocxReader:
-    def __init__(self, docx_path):
+    def __init__(self, ui_instance, docx_path):
+        self.ui_instance = ui_instance
         self.docx_path = docx_path
         self.all_subjects = []
+        self.semester = self.ui_instance.find()
+        #self.read_docx(semester)
 
-    def read_docx(self, semester):
+    def read_docx(self):
         cnt_s = 0
 
         # Open the Word document
@@ -298,31 +329,64 @@ class DocxReader:
                     marks = row.cells[marks_column_index].text.strip() if marks_column_index is not None else ''
 
                     # Create a dictionary
-                    sem_subjects[discipline1] = (control, date, marks)
+                    sem_subjects[discipline1.strip()] = (control, date, marks)
 
             if sem_subjects:
                 self.all_subjects.append(sem_subjects)
-            if cnt_s == semester:
+            if cnt_s == self.semester:
                 break
 
         return self.all_subjects
 
-# Example usage:
-docx_reader = DocxReader('certificate_with_marks.docx')
-semester_data = docx_reader.read_docx(3)
-print(semester_data)
+
 
 class Match:
-    def __init__(self, docx_data, xls_data):
+    def __init__(self):
         self.complete_match = []
         self.partially_match = []
         self.mismatch = []
-        self.match(docx_data, xls_data)
+        # xls_data is a dictionary, values are lists
+        # docx_data is a list which consists several dictionaries
+
 
     def match(self, docx_data, xls_data):
-        for docx_semester, docx_subjects in enumerate(docx_data):
-            xls_semester = docx_semester
 
+        # first I get a first element of docx_data and compare it with xlsx_data
+        for docx_semester, docx_subjects in enumerate(docx_data):
+            #print(docx_semester, docx_subjects)
+            # checking every subject in docx_data if it is in xls_data
+            for docx_subject, docx_info in docx_subjects.items():
+                print(docx_subject)
+                if docx_subject in xls_data:
+                    xls_subject = docx_subject
+                else:
+                    xls_subject = None
+                #print(docx_subject, xls_subject)
+
+                if xls_subject:
+                    if docx_subject == xls_subject and docx_info[0] == xls_data[xls_subject][1]:
+                        # checking it the subject is already in the list or not
+                        if (docx_subject, xls_subject) in self.complete_match:
+                            # find the index of the subject
+                            index = self.complete_match.index((docx_subject, xls_subject))
+
+                            # replace the subject
+                            self.complete_match[index] = (docx_subject, xls_subject)
+
+                        else:
+                            self.complete_match.append((docx_subject, xls_subject))
+                    else:
+                        if (docx_subject, xls_subject) in self.partially_match:
+                            # find the index of the subject
+                            index = self.partially_match.index((docx_subject, xls_subject))
+
+                            # replace the subject
+                            self.partially_match[index] = (docx_subject, xls_subject)
+                        else:
+                            self.partially_match.append((docx_subject, xls_subject))
+                else:
+                    self.mismatch.append((docx_subject, xls_subject))
+        return (self.complete_match, self.partially_match, self.mismatch)
 
 
 
@@ -333,5 +397,6 @@ if __name__ == "__main__":
     MainWindow = QtWidgets.QMainWindow()
     ui = Ui_MainWindow()
     ui.setupUi(MainWindow)
+
     MainWindow.show()
     sys.exit(app.exec_())
