@@ -11,8 +11,6 @@
 from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.QtWidgets import QComboBox
 import pandas as pd
-import math
-import numpy as np
 import docx
 import copy
 
@@ -153,7 +151,7 @@ class Ui_MainWindow(object):
 
                 #print(self.matching)
 
-                complete_match, partially_match, mismatch_xls, mismatch_docx = self.matching.match(self.docx_data, self.xls_data.data_dict)
+                complete_match, partially_match, mismatch_xls, mismatch_docx = self.matching.match(self.docx_data, self.xls_data.excel_subjects)
                 print(80*'-')
                 print("Complete Match:", complete_match)
                 print(80 * '-')
@@ -168,7 +166,7 @@ class Ui_MainWindow(object):
                 self.xls_data = XLSReader(self, self.file_path1)
 
 
-                complete_match, partially_match, mismatch_xls, mismatch_docx = self.matching.match(self.docx_data, self.xls_data.data_dict)
+                complete_match, partially_match, mismatch_xls, mismatch_docx = self.matching.match(self.docx_data, self.xls_data.excel_subjects)
                 print(80 * '-')
                 print("Complete Match:", complete_match)
                 print(80 * '-')
@@ -213,74 +211,64 @@ class XLSReader:
         self.ui_instance = ui_instance
         self.xls = pd.ExcelFile(file)
         self.course = 6 + self.ui_instance.find() / 2
-        #self.column = [2, 11, 12, 21, 22]
         self.start = 5
-        self.end = 30  # under question???
+        self.end = 50  # under question???
+        self.excel_subjects = []
         self.save_to_dict(self.course, row_start=self.start, row_end=self.end)
 
     def save_to_dict(self, course, row_start=None, row_end=None):
-        self.column = [2, 11, 12, 21, 22]
-        self.data_dict = {}
+        self.column = [(2, 11, 12, 21, 22)]
         cnt = 0
         if course == 6.5:
-            self.column_indices = self.column[0:3]
+            self.column_indices = [(11, 12)]
             self.tcourse = int(course) + 1
-            print(self.tcourse, course)
+            #print(self.tcourse, course)
         elif course - int(course) == 0.5:
-            self.column_indices = self.column
+            self.column_indices = [(11, 12), (21, 22)]
             self.tcourse = int(course) + 1
-            flag = False
         else:
             self.tcourse = int(course)
-            self.column_indices = self.column
+            self.column_indices = [(11, 12), (21, 22)]
 
 
         # Iterate through each sheet
         for sheet_name in self.xls.sheet_names[6:self.tcourse]:
-            cnt += 1
-            if cnt == self.tcourse - 6 and course - int(course) == 0.5:
-                self.column_indices = self.column[0:3]
             # Read the sheet into a DataFrame
             self.df = pd.read_excel(self.xls, sheet_name)
 
-            # If column_indices is not provided, use all the columns
-            if self.column_indices is None:
-                column_indices = range(len(self.df.columns))
+            cnt += 1
+            if cnt == self.tcourse - 6 and course - int(course) == 0.5:
+                self.column_indices = [(11, 12)]
 
-            # Validate column indices
-            if any(idx >= len(self.df.columns) for idx in self.column_indices):
-                raise ValueError("Invalid column index provided.")
+            for column_pair in self.column_indices:
+                # Initialize a new dictionary for each semester
+                data_dict = {}
 
-            # Iterate over rows within the specified range and save it to the dictionary
-            for index, row in self.df.iterrows():
-                if row_start is not None and index < row_start:
-                    continue  # skip rows before the specified start index
+                # Iterate over rows within the specified range and save it to the dictionary
+                for index, row in self.df.iterrows():
+                    if row_start is not None and index < row_start:
+                        continue  # skip rows before the specified start index
 
-                if row_end is not None and index > row_end:
-                    break
+                    if row_end is not None and index > row_end:
+                        break
 
-                for i in range(1, len(self.column_indices), 2):
-                    key = row.iloc[self.column_indices[0]]
-                    values = list(row.iloc[i] for i in self.column_indices[i:i + 2])  # Use the rest as values
+                    if pd.isna(row.iloc[2]):
+                        break
 
+                    key = row.iloc[2]
+                    values = [row.iloc[column_pair[0]], row.iloc[column_pair[1]]]  # Use the rest as values
 
-                    if pd.isna(key):
+                    if pd.isna(key) or values[0] == 0:
                         continue
-                    #print(f'Index: {index}, key: {key}, values: {values}')
-                    if key not in self.data_dict:
-                        if values[0] != 0:
-                            self.data_dict[key] = values
-                        else:
-                            continue
-                    else:
-                        if values[0] != 0:
-                            #print(f'Index: {index}, key: {key}, values: {values}')
-                            self.data_dict[key][0] += values[0]
-                            self.data_dict[key][1] = values[1]
-                        else:
-                            continue
 
-        return self.data_dict
+                    data_dict[key] = values
+
+                if data_dict:
+                    self.excel_subjects.append(data_dict)
+
+        # Append the dictionary for this semester to the list
+        #print(self.excel_subjects)
+        return self.excel_subjects
 
 
 class DocxReader:
@@ -334,6 +322,8 @@ class DocxReader:
                     elif "аттестация всех разделов" in discipline:
                         control = "аттестовано"
                         discipline1 = discipline.replace("(аттестация всех разделов)", '')
+                    elif "РУП" in discipline:
+                        continue
                     else:
                         control = ''
                         discipline1 = discipline
@@ -358,86 +348,70 @@ class Match:
     def __init__(self):
         self.complete_match = []
         self.partially_match = []
-        self.mismatch = []
+        self.mismatch_docx_lst = []
+        self.mismatch_xlsx_lst = []
         self.complete_match_dct = {}
         self.partially_match_dct = {}
         self.mismatch_docx = {}
         self.mismatch_xlsx = {}
-        # xls_data is a dictionary, values are lists
+        # xls_data is a list which consists several dictionaries
         # docx_data is a list which consists several dictionaries
 
 
     def match(self, docx_data, xls_data):
         print("data from excel file: ", xls_data)
         print("data from docx file: ", docx_data)
-        self.xls_data_mismatch = copy.deepcopy(xls_data)
-        self.docx_data_mismatch = copy.deepcopy(docx_data)
+        xls_data_copy = copy.deepcopy(xls_data)
+        docx_data_copy = copy.deepcopy(docx_data)
 
-        # first I get a first element of docx_data and compare it with xlsx_data
+        # Set to keep track of matched subjects with semester info
+        matched_subjects = set()
+
+        # first I get a first element of docx_data and compare it with every element in each semester from xlsx_data
         for docx_semester, docx_subjects in enumerate(docx_data):
-            #print(docx_semester, docx_subjects)
-            # checking every subject in docx_data if it is in xls_data
             for docx_subject, docx_info in docx_subjects.items():
                 #print(docx_subject)
-                if docx_subject in xls_data:
-                    xls_subject = docx_subject
-                    self.xls_data_mismatch.pop(xls_subject, None)
-                    self.docx_data_mismatch[docx_semester].pop(docx_subject, None)
-                else:
-                    xls_subject = None
-                #print(docx_subject, xls_subject)
+                # iterate through every subject in xls_data
+                for xls_semester, xls_subjects in enumerate(xls_data):
+                    # a unique identifier for each subject including its semester
+                    xls_subject_key = (docx_subject, xls_semester)
+                    if xls_subject_key in matched_subjects:
+                        continue  # Skip already matched subjects
+                    if docx_subject in xls_subjects:
+                        # If matched
+                        matched_subjects.add(xls_subject_key)
+                        xls_subject = docx_subject
+                        # information about subjects
+                        hours = xls_subjects[xls_subject][0]
+                        kr_type_xls = xls_subjects[xls_subject][1]
+                        kr_type_docx = docx_info[0]
+                        mark = docx_data[docx_semester][docx_subject][1]
+                        date = docx_data[docx_semester][docx_subject][2]
 
-
-
-
-                if xls_subject:
-
-                    # information for dictionary, if subjects are matching
-                    hours = xls_data[xls_subject][0]
-                    kr_type_xls = xls_data[xls_subject][1]
-                    kr_type_docx = docx_data[docx_semester][docx_subject][0]
-                    # you should add information about semester from excel file
-                    mark = docx_data[docx_semester][docx_subject][1]
-                    date = docx_data[docx_semester][docx_subject][2]
-
-
-                    if docx_subject == xls_subject and docx_info[0] == xls_data[xls_subject][1]:
-
-                        # checking if the subject is already in the list or not
-                        if (docx_subject, xls_subject) in self.complete_match:
-                            # find the index of the subject
-                            index = self.complete_match.index((docx_subject, xls_subject))
-
-                            # replace the subject
-                            self.complete_match[index] = (docx_subject, xls_subject)
-
-                            # appending elements to the dictionary (maybe in future i will change this part of code)
+                        if docx_subject == xls_subject and kr_type_xls == kr_type_docx:
+                            # add this subject to complete_match list
+                            self.complete_match.append(docx_subject)
+                            # adding this subject to the dictionary
                             self.complete_match_dct[docx_subject] = (hours, kr_type_xls, mark, date)
 
-                        else:
-                            self.complete_match.append((docx_subject, xls_subject))
-
-                            # appending elements to the dictionary
-                            self.complete_match_dct[docx_subject] = (hours, kr_type_xls, mark, date)
-                    else:
-                        if (docx_subject, xls_subject) in self.partially_match:
-                            # find the index of the subject
-                            index = self.partially_match.index((docx_subject, xls_subject))
-
-                            # replace the subject
-                            self.partially_match[index] = (docx_subject, xls_subject)
-
-                            # appending to the final dictionary all the information about subjects
-                            self.partially_match_dct[docx_subject] = (hours, kr_type_xls, kr_type_docx, mark, date)
                         else:
                             self.partially_match.append((docx_subject, xls_subject))
-
-                            # appending to the final dictionary all the information about subjects
+                            # if they match partially, I add this subject to this dictionary
                             self.partially_match_dct[docx_subject] = (hours, kr_type_xls, kr_type_docx, mark, date)
-                else:
-                    self.mismatch.append(docx_subject)
-        #return self.complete_match, self.partially_match, self.mismatch
-        return self.complete_match_dct, self.partially_match_dct, self.xls_data_mismatch, self.docx_data_mismatch
+
+                        # removing items from the copied dictionary
+                        docx_data_copy[docx_semester].pop(docx_subject, None)
+                        xls_data_copy[xls_semester].pop(xls_subject, None)
+                        break
+
+        # adding left subjects t0 mismatch dictionary
+        for sem, subjects in enumerate(docx_data_copy):
+            for key, value in subjects.items():
+                self.mismatch_docx[key] = value
+        for sem, subjects in enumerate(xls_data_copy):
+            for key, value in subjects.items():
+                self.mismatch_xlsx[key] = value
+        return self.complete_match, self.partially_match_dct, xls_data_copy, docx_data_copy
 
 
 
