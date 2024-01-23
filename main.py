@@ -9,11 +9,12 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QComboBox
+from PyQt5.QtWidgets import QComboBox,QWidget, QListWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QScrollArea
+from PyQt5.QtCore import Qt, QMimeData
+from PyQt5.QtGui import QDrag
 import pandas as pd
 import docx
 import copy
-
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -144,6 +145,7 @@ class Ui_MainWindow(object):
         # get the file path from the browse functions
         self.matching = Match()
         if (self.file_path1 and self.file_path2) is not None:
+            complete_match, partially_match, mismatch_xls, mismatch_docx = [], [], [], []
             if self.file_path1.endswith('.docx') and self.file_path2.endswith('.xlsx'):
                 self.docx = DocxReader(self, self.file_path1)
                 self.docx_data = self.docx.read_docx()
@@ -178,9 +180,13 @@ class Ui_MainWindow(object):
 
             else:
                 print("Invalid file types. Please choose a DOCX and an Excel file.")
-
+            self.resultsWindow = ResultsWindow(complete_match, partially_match, mismatch_xls, mismatch_docx)  # pass appropriate data
+            self.resultsWindow.show()
         else:
             print("No file selected. Please choose a file")
+
+        # Creating and displaying the results window
+
 
     # finding the current item in the combobox
     def find(self):
@@ -413,6 +419,141 @@ class Match:
                 self.mismatch_xlsx[key] = value
         return self.complete_match, self.partially_match_dct, xls_data_copy, docx_data_copy
 
+
+class DraggableListWidget(QListWidget):
+    def __init__(self,layout_group, parent=None):
+        super(DraggableListWidget, self).__init__(parent)
+        self.layout_group = layout_group
+        self.currentlyDraggingItem = None
+        self.setDragDropMode(QListWidget.DragDrop)
+        self.setSelectionMode(QListWidget.SingleSelection)
+        self.setAcceptDrops(True)
+        self.setDragEnabled(True)
+
+    def startDrag(self, supportedActions):
+        drag = QDrag(self)
+        mimeData = QMimeData()
+
+        # Take the current item but do not remove it from the list yet
+        item = self.takeItem(self.currentRow())
+        if item:
+            mimeData.setText(item.text())
+            drag.setMimeData(mimeData)
+            if drag.exec_(Qt.MoveAction) == Qt.MoveAction:
+                # If the drag was successful, do not re-add the item
+                pass
+            else:
+                # If the drag was not successful, add the item back to its original list
+                self.insertItem(self.currentRow(), item)
+
+    def dragEnterEvent(self, event):
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dragMoveEvent(self, event):
+        if event.mimeData().hasText():
+            event.acceptProposedAction()
+
+    def dropEvent(self, event):
+        source = event.source()
+        if isinstance(source, DraggableListWidget) and source.layout_group == self.layout_group:
+            # Proceed with the drop if the source and target are in the same layout group
+            if event.source() != self and event.mimeData().hasText():
+                # Get the dropped text and create a new list item
+                text = event.mimeData().text()
+                newItem = QListWidgetItem(text)
+
+                # Find the drop position
+                position = self.dropIndicatorPosition()
+                if position == QListWidget.AboveItem:
+                    row = self.row(self.itemAt(event.pos()))
+                elif position == QListWidget.BelowItem:
+                    row = self.row(self.itemAt(event.pos())) + 1
+                else:
+                    row = self.count()  # Add to the end of the list
+
+                # Add the new item at the determined position
+                self.insertItem(row, newItem)
+                event.acceptProposedAction()
+                # Remove the item from the source list if the source and target are different
+                # if source != self:
+                #     source.takeItem(source.row(self.currentlyDraggingItem))
+        else:
+            # Ignore the drop if they are from different layout groups
+            event.ignore()
+
+
+
+class ResultsWindow(QWidget):
+    def __init__(self, complete_match, partially_match, mismatch_xls, mismatch_docx, parent=None):
+        super(ResultsWindow, self).__init__(parent)
+        # Layouts
+        mainLayout = QHBoxLayout(self)
+        leftLayout = QVBoxLayout()
+        rightLayout = QVBoxLayout()
+
+        # List widgets
+        self.completeMatchList_docx = DraggableListWidget('left')
+        self.completeMatchList_xls = DraggableListWidget('right')
+        self.partialMatchList_docx = DraggableListWidget('left')
+        self.partialMatchList_xls = DraggableListWidget('right')
+        self.mismatchList_docx = DraggableListWidget('left')
+        self.mismatchList_xls = DraggableListWidget('right')
+
+        #populate lists
+        self.populateList(self.completeMatchList_docx, complete_match)
+        self.populateList(self.completeMatchList_xls, complete_match)
+        self.populateList(self.partialMatchList_docx, partially_match)
+        self.populateList(self.partialMatchList_xls, partially_match)
+        self.populateList(self.mismatchList_docx, mismatch_docx)
+        self.populateList(self.mismatchList_xls, mismatch_xls)
+
+        # background color
+        # Create scroll areas with colors for each list and add them to the layouts
+        self.addScrollArea(leftLayout, self.completeMatchList_docx, "green")
+        self.addScrollArea(leftLayout, self.partialMatchList_docx, "yellow")
+        self.addScrollArea(leftLayout, self.mismatchList_docx, "red")
+        self.addScrollArea(rightLayout, self.completeMatchList_xls, "green")
+        self.addScrollArea(rightLayout, self.partialMatchList_xls, "yellow")
+        self.addScrollArea(rightLayout, self.mismatchList_xls, "red")
+
+        listLayout = QHBoxLayout()
+        mainLayout.addLayout(leftLayout)
+        mainLayout.addLayout(rightLayout)
+
+        mainLayout.addLayout(listLayout)
+
+        # New button at the bottom
+        self.newButton = QtWidgets.QPushButton("Generate documnent", self)
+        self.newButton.setToolTip("Generate a new .docx file")
+        self.newButton.setStyleSheet("QPushButton { background-color: #FF5733; color: white; }")
+        mainLayout.addWidget(self.newButton)  # Add the button to the main layout
+
+        self.setLayout(mainLayout)
+
+    def addScrollArea(self, layout, widget, color):
+        scrollArea = QScrollArea(self)
+        scrollArea.setWidgetResizable(True)
+        scrollArea.setWidget(widget)
+        # Set a fixed size for the scroll area
+        scrollArea.setFixedSize(500, 300)  # Example size: 300 width x 200 height
+        scrollArea.setStyleSheet(f"background-color: {color};")
+        layout.addWidget(scrollArea)
+
+    def populateList(self, listWidget, items):
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict):
+                    for subject in item:
+                        list_item = QListWidgetItem(subject)
+                        listWidget.addItem(list_item)
+                else:
+                    list_item = QListWidgetItem(item)
+                    listWidget.addItem(list_item)
+        elif isinstance(items, dict):
+            for subject in items:
+                list_item = QListWidgetItem(subject)
+                listWidget.addItem(list_item)
 
 
 if __name__ == "__main__":
