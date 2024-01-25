@@ -9,12 +9,20 @@
 
 
 from PyQt5 import QtCore, QtGui, QtWidgets
-from PyQt5.QtWidgets import QComboBox,QWidget, QListWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QScrollArea
+from PyQt5.QtWidgets import QComboBox, QWidget, QListWidget, QVBoxLayout, QHBoxLayout, QListWidgetItem, QScrollArea
 from PyQt5.QtCore import Qt, QMimeData
 from PyQt5.QtGui import QDrag
 import pandas as pd
-import docx
 import copy
+import docx
+from docx import Document
+from docx.enum.text import WD_ALIGN_PARAGRAPH
+from docx.enum.section import WD_ORIENT
+from docx.shared import Pt, Inches
+from docx.oxml import OxmlElement
+from docx.oxml.ns import qn
+
+
 
 class Ui_MainWindow(object):
     def setupUi(self, MainWindow):
@@ -145,7 +153,7 @@ class Ui_MainWindow(object):
         # get the file path from the browse functions
         self.matching = Match()
         if (self.file_path1 and self.file_path2) is not None:
-            complete_match, partially_match, mismatch_xls, mismatch_docx = [], [], [], []
+            complete_match, partially_match, mismatch_xls, mismatch_docx, complete_match_dct = [], [], [], [], []
             if self.file_path1.endswith('.docx') and self.file_path2.endswith('.xlsx'):
                 self.docx = DocxReader(self, self.file_path1)
                 self.docx_data = self.docx.read_docx()
@@ -153,7 +161,7 @@ class Ui_MainWindow(object):
 
                 #print(self.matching)
 
-                complete_match, partially_match, mismatch_xls, mismatch_docx = self.matching.match(self.docx_data, self.xls_data.excel_subjects)
+                complete_match, partially_match, mismatch_xls, mismatch_docx, complete_match_dct = self.matching.match(self.docx_data, self.xls_data.excel_subjects)
                 print(80*'-')
                 print("Complete Match:", complete_match)
                 print(80 * '-')
@@ -168,7 +176,7 @@ class Ui_MainWindow(object):
                 self.xls_data = XLSReader(self, self.file_path1)
 
 
-                complete_match, partially_match, mismatch_xls, mismatch_docx = self.matching.match(self.docx_data, self.xls_data.excel_subjects)
+                complete_match, partially_match, mismatch_xls, mismatch_docx, complete_match_dct = self.matching.match(self.docx_data, self.xls_data.excel_subjects)
                 print(80 * '-')
                 print("Complete Match:", complete_match)
                 print(80 * '-')
@@ -180,7 +188,7 @@ class Ui_MainWindow(object):
 
             else:
                 print("Invalid file types. Please choose a DOCX and an Excel file.")
-            self.resultsWindow = ResultsWindow(complete_match, partially_match, mismatch_xls, mismatch_docx)  # pass appropriate data
+            self.resultsWindow = ResultsWindow(complete_match, partially_match, mismatch_xls, mismatch_docx, complete_match_dct)  # pass appropriate data
             self.resultsWindow.show()
         else:
             print("No file selected. Please choose a file")
@@ -417,7 +425,7 @@ class Match:
         for sem, subjects in enumerate(xls_data_copy):
             for key, value in subjects.items():
                 self.mismatch_xlsx[key] = value
-        return self.complete_match, self.partially_match_dct, xls_data_copy, docx_data_copy
+        return self.complete_match, self.partially_match_dct, xls_data_copy, docx_data_copy, self.complete_match_dct
 
 
 class DraggableListWidget(QListWidget):
@@ -484,13 +492,20 @@ class DraggableListWidget(QListWidget):
 
 
 
+
 class ResultsWindow(QWidget):
-    def __init__(self, complete_match, partially_match, mismatch_xls, mismatch_docx, parent=None):
+    def __init__(self, complete_match, partially_match, mismatch_xls, mismatch_docx, complete_match_dct, parent=None):
         super(ResultsWindow, self).__init__(parent)
         # Layouts
         mainLayout = QHBoxLayout(self)
         leftLayout = QVBoxLayout()
         rightLayout = QVBoxLayout()
+
+        self.complete_match = complete_match
+        self.partially_match = partially_match
+        self.mismatch_xls = mismatch_xls
+        self.mismatch_docx = mismatch_docx
+        self.complete_match_dct = complete_match_dct
 
         # List widgets
         self.completeMatchList_docx = DraggableListWidget('left')
@@ -527,6 +542,9 @@ class ResultsWindow(QWidget):
         self.newButton = QtWidgets.QPushButton("Generate documnent", self)
         self.newButton.setToolTip("Generate a new .docx file")
         self.newButton.setStyleSheet("QPushButton { background-color: #FF5733; color: white; }")
+
+        #self.newButton.clicked.connect(self.ButtonClicked)
+        self.newButton.clicked.connect(self.ButtonClicked)
         mainLayout.addWidget(self.newButton)  # Add the button to the main layout
 
         self.setLayout(mainLayout)
@@ -554,6 +572,450 @@ class ResultsWindow(QWidget):
             for subject in items:
                 list_item = QListWidgetItem(subject)
                 listWidget.addItem(list_item)
+
+    def updateDictionaries(self):
+        updatedCompleteMatch = self.getListContents(self.completeMatchList_docx)
+        updatedPartialMatch_docx = self.getListContents(self.partialMatchList_docx)
+        updatedPartialMatch_xls = self.getListContents(self.partialMatchList_xls)
+        updatedMismatch_docx = self.getListContents(self.mismatchList_docx)
+        updatedMismatch_xls = self.getListContents(self.mismatchList_xls)
+
+        # Updating dictionaries accordingly
+        self.complete_match = updatedCompleteMatch
+        # save all deleted subjects in here
+        deleted_subjects = {}
+        # updating complete_match dictionary
+        complete_match_dct_copy = copy.deepcopy(self.complete_match_dct)
+        for subject in self.complete_match_dct:
+            if subject not in updatedCompleteMatch:
+                complete_match_dct_copy.pop(subject, None)
+                deleted_subjects[subject] = self.complete_match_dct[subject]
+
+        # updating partially_match dictionaries
+        partially_match_docx_copy = copy.deepcopy(self.partially_match)
+        for subject in self.partially_match:
+            if subject not in updatedPartialMatch_docx:
+                partially_match_docx_copy.pop(subject, None)
+                deleted_subjects[subject] = self.partially_match[subject]
+
+
+        partially_match_xls_copy = copy.deepcopy(self.partially_match)
+        for subject in self.partially_match:
+            if subject not in updatedPartialMatch_xls:
+                partially_match_xls_copy.pop(subject, None)
+                deleted_subjects[subject] = self.partially_match[subject]
+
+        # updating mismatch dictionaries
+        mismatch_docx_copy = copy.deepcopy(self.mismatch_docx)
+        for sem, subjects in enumerate(self.mismatch_docx):
+            for subject in subjects:
+                if subject not in updatedMismatch_docx:
+                    mismatch_docx_copy[sem].pop(subject, None)
+                    deleted_subjects[subject] = self.mismatch_docx[sem][subject]
+
+
+        mismatch_xls_copy = copy.deepcopy(self.mismatch_xls)
+        for sem, subjects in enumerate(self.mismatch_xls):
+            for subject in subjects:
+                if subject not in updatedMismatch_xls:
+                    mismatch_xls_copy[sem].pop(subject, None)
+                    deleted_subjects[subject] = self.mismatch_xls[sem][subject]
+
+
+
+        # adding deleted subjects accordingly to list widget
+        for subject in deleted_subjects:
+            if subject in updatedCompleteMatch:
+                complete_match_dct_copy[subject] = deleted_subjects[subject]
+            elif subject in updatedPartialMatch_docx:
+                partially_match_docx_copy[subject] = deleted_subjects[subject]
+            elif subject in updatedPartialMatch_xls:
+                partially_match_xls_copy[subject] = deleted_subjects[subject]
+            elif subject in updatedMismatch_docx:
+                mismatch_docx_copy[0][subject] = deleted_subjects[subject]
+            elif subject in updatedMismatch_xls:
+                mismatch_xls_copy[0][subject] = deleted_subjects[subject]
+
+
+            # Print the updated dictionaries
+        print(20 * "*")
+        print("Updated Complete Match Dictionary:")
+        print(complete_match_dct_copy)
+        print("\nUpdated Partially Match Dictionary:")
+        print(partially_match_docx_copy)
+        print(partially_match_xls_copy)
+        print("\nUpdated Mismatch Docx Dictionary:")
+        print(mismatch_docx_copy)
+        print("\nUpdated Mismatch Xls Dictionary:")
+        print(mismatch_xls_copy)
+        self.partially_match_xls, self.partially_match_docx, self.mismatch_xls, self.mismatch_docx = partially_match_xls_copy, partially_match_docx_copy, mismatch_xls_copy, mismatch_docx_copy
+
+        #return partially_match_xls_copy, partially_match_docx_copy, mismatch_xls_copy, mismatch_docx_copy
+    def getListContents(self, listWidget):
+        items = []
+        for index in range(listWidget.count()):
+            items.append(listWidget.item(index).text())
+        return items
+
+    def ButtonClicked(self):
+        # Call updateDictionaries when the button is clicked
+        self.updateDictionaries()
+
+        self.generateDocx()
+        print("Dictionaries updated.")
+
+    @staticmethod
+    def set_cell_bold(cell):
+        for paragraph in cell.paragraphs:
+            for run in paragraph.runs:
+                run.bold = True
+
+    @staticmethod
+    def set_cell_format(cell,bold=True, center=True):
+        #cell.text = text
+        for paragraph in cell.paragraphs:
+            if center:
+                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
+            if bold:
+                run = paragraph.runs[0] if paragraph.runs else paragraph.add_run()
+                run.bold = True
+
+    @staticmethod
+    def set_vertical_alignment(cell, align="center"):  # align options: "top", "center", "bottom"
+        try:
+            tc = cell._tc
+            tcPr = tc.get_or_add_tcPr()
+            vAlign = OxmlElement('w:vAlign')
+            vAlign.set(qn('w:val'), align)
+            tcPr.append(vAlign)
+        except Exception as e:
+            print("Error in setting vertical alignment:", e)
+
+    def create_table_structure(self, doc):
+        # Create table
+        table = doc.add_table(rows=2, cols=8)
+        table.style = 'Table Grid'
+
+        # Define and merge cells for headers
+        headers = ['№',
+                   'Название дисциплины из текущего РУПа',
+                   'Объем текущего РУПа',
+                   'З / Э/ ЗО',
+                   'Семестр',
+                   'Отметка о сдаче']
+
+        merge_indices = [(0, 0, 1, 0), (0, 1, 1, 1), (0, 2, 0, 3),
+                         (0, 4, 1, 4), (0, 5, 1, 5), (0, 6, 0, 7)]
+
+        for header, indices in zip(headers, merge_indices):
+            a = table.cell(*indices[0:2])
+            b = table.cell(*indices[2:])
+            merged_cell = a.merge(b)
+            merged_cell.text = header
+
+        hdr_cells = table.rows[1].cells
+        hdr_cells[2].text = 'Зач.ед'
+        hdr_cells[3].text = 'Часы'
+        hdr_cells[6].text = 'оценка'
+        hdr_cells[7].text = 'дата'
+
+        column_index = [1, 2, 3, 4, 5, 6, 7]
+        for row in table.rows[0, 2]:
+            for column in column_index:
+                cell = row.cells[column]
+                self.set_cell_format(cell)
+
+
+        return table
+
+    def change_table(self, table):
+        pass
+    def generateDocx(self):
+        doc = Document()
+        section = doc.sections[0]
+        section.orientation = WD_ORIENT.LANDSCAPE
+        section.page_width = Inches(11.69)  # For A4 size
+        section.page_height = Inches(8.27)
+
+        # font style
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = 'Times New Roman'
+        font.size = Pt(12)
+        # adding the title
+        p1 = doc.add_paragraph('«СОГЛАСОВАНО»')
+        p1.runs[0].bold = True
+        p1.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+        p2 = doc.add_paragraph('«_____» ___________ 20___')
+        p2.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+        p3 = doc.add_paragraph('____________ / ______________')
+        p3.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+        p4 = doc.add_paragraph('подпись      	ФИО  ')
+        p4.runs[0].bold = True
+        p4.alignment = WD_ALIGN_PARAGRAPH.RIGHT
+
+        p5 = doc.add_paragraph('ПЛАН')
+        p5.runs[0].bold = True
+        p5.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        p6 = doc.add_paragraph('ликвидации академической разницы в связи с восстановлением')
+        p6.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        p7 = doc.add_paragraph('в группу ______ НИЯУ МИФИ')
+        p7.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        p8 = doc.add_paragraph('студента ___________________________')
+        p8.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # p9 = doc.add_paragraph('Перезачесть дисциплины, изученные ранее и соответствующие учебному плану направления (09.03.04 «Программная инженерия»), в следующем объеме:')
+        # p9.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+        # a title for the table
+        title_paragraph = doc.add_paragraph('Перезачесть дисциплины, изученные ранее и соответствующие учебному плану направления (09.03.04 «Программная инженерия»), в следующем объеме:')
+        #title_paragraph.style = doc.styles['Heading 1']  # Applying a heading style (optional)
+        run = title_paragraph.runs[0]
+        run.font.size = Pt(11)  # Setting font size
+        # run.bold = True  # Making the title bold
+        title_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT  # Center-aligning the title
+
+        # Add a table for partially match
+        table = doc.add_table(rows=2, cols=8)
+        table.style = 'Table Grid'
+
+        a = table.cell(0, 0)
+        b = table.cell(1, 0)
+        A = a.merge(b)
+        A.text = '№'
+
+        a1 = table.cell(0, 1)
+        b1 = table.cell(1, 1)
+        A1 = a1.merge(b1)
+        A1.text = 'Название дисциплины из текущего РУПа /Название ранее сданной дисциплины'
+
+        a2 = table.cell(0, 2)
+        b2 = table.cell(0, 3)
+        A2 = a2.merge(b2)
+        A2.text = 'Объем текущего РУПа'
+
+        a3 = table.cell(0, 4)
+        b3 = table.cell(1, 4)
+        A3 = a3.merge(b3)
+        A3.text = 'З / Э/ ЗО'
+
+        a4 = table.cell(0, 5)
+        b4 = table.cell(1, 5)
+        A4 = a4.merge(b4)
+        A4.text = 'Семестр'
+
+        a5 = table.cell(0, 6)
+        b5 = table.cell(0, 7)
+        A5 = a5.merge(b5)
+        A5.text = 'Отметка о сдаче'
+
+        hdr_cells = table.rows[1].cells
+        hdr_cells[2].text = 'Зач.ед'
+        hdr_cells[3].text = 'Часы'
+        hdr_cells[6].text = 'оценка'
+        hdr_cells[7].text = 'дата'
+
+        self.set_cell_format(A)
+        self.set_cell_format(A1)
+        self.set_cell_format(A2)
+        self.set_cell_format(A3)
+        self.set_cell_format(A4)
+        self.set_cell_format(A5)
+        self.set_cell_format(hdr_cells[2])
+        self.set_cell_format(hdr_cells[3])
+        self.set_cell_format(hdr_cells[6])
+        self.set_cell_format(hdr_cells[7])
+
+        rows_to_modify = [0, 1]  # Specify the row indices you want to modify
+
+        for row_index in rows_to_modify:
+            row = table.rows[row_index]
+            for cell in row.cells:
+                # Apply your modifications (e.g., vertical alignment) to each cell
+                self.set_vertical_alignment(cell, "center")
+
+
+
+        #partially_match_xls, partially_match_docx, mismatch_xls, mismatch_docx = self.updateDictionaries()
+
+        for index, subject in enumerate(self.partially_match_docx):
+            row_cells = table.add_row().cells
+            row_cells[0].text = str(index + 1)
+            keys = list(self.partially_match_xls)
+            row_cells[1].text = str(keys[index]) + '/' + subject
+            if isinstance(self.partially_match_docx[subject][0], int):
+                row_cells[2].text = str(int(int(self.partially_match_docx[subject][0]) / 36))
+            else:
+                row_cells[2].text = '5'
+
+            if len(self.partially_match_docx[subject]) == 5:
+                row_cells[3].text = str(self.partially_match_docx[subject][0])
+                row_cells[4].text = self.partially_match_docx[subject][2]
+                row_cells[5].text = '1'
+                row_cells[6].text = self.partially_match_docx[subject][4]
+                row_cells[7].text = self.partially_match_docx[subject][3]
+            else:
+                row_cells[3].text = '180'
+                row_cells[4].text = self.partially_match_docx[subject][0]
+                row_cells[5].text = '1'
+                row_cells[6].text = self.partially_match_docx[subject][2]
+                row_cells[7].text = self.partially_match_docx[subject][1]
+
+
+            column_index = [1, 2, 3, 4, 5, 6, 7]
+
+            # Start from the third row (index 2) and go through all the rows to make the font size 11
+            for row in table.rows[2:]:
+                for column in column_index:
+                    cell = row.cells[column]
+                    for paragraph in cell.paragraphs:
+                        for run in paragraph.runs:
+                            run.font.size = Pt(11)
+
+            # making the rows to be aligned at the center
+            for row in table.rows[2:]:
+                for cell in row.cells:
+                    # Apply your modifications (e.g., vertical alignment) to each cell
+                    self.set_vertical_alignment(cell, "center")
+                    self.set_cell_format(cell, bold=False)
+
+        # a title for mismatch
+        title_paragraph = doc.add_paragraph('Ликвидация академической задолженности, возникшей ввиду разницы'
+                                            ' в учебных планах по следующим дисциплинам:')
+        run = title_paragraph.runs[0]
+        run.font.size = Pt(11)  # Setting font size
+        # run.bold = True  # Making the title bold
+        title_paragraph.alignment = WD_ALIGN_PARAGRAPH.LEFT  # Center-aligning the title
+
+        # a table for mismatch
+        table2 = doc.add_table(rows=2, cols=8)
+        table2.style = 'Table Grid'
+
+        a = table2.cell(0, 0)
+        b = table2.cell(1, 0)
+        A = a.merge(b)
+        A.text = '№'
+
+        a1 = table2.cell(0, 1)
+        b1 = table2.cell(1, 1)
+        A1 = a1.merge(b1)
+        A1.text = 'Название дисциплины из текущего РУПа'
+
+        a2 = table2.cell(0, 2)
+        b2 = table2.cell(0, 3)
+        A2 = a2.merge(b2)
+        A2.text = 'Объем текущего РУПа'
+
+        a3 = table2.cell(0, 4)
+        b3 = table2.cell(1, 4)
+        A3 = a3.merge(b3)
+        A3.text = 'З / Э/ ЗО'
+
+        a4 = table2.cell(0, 5)
+        b4 = table2.cell(1, 5)
+        A4 = a4.merge(b4)
+        A4.text = 'Семестр'
+
+        a5 = table2.cell(0, 6)
+        b5 = table2.cell(0, 7)
+        A5 = a5.merge(b5)
+        A5.text = 'Отметка о сдаче'
+
+        hdr_cells = table2.rows[1].cells
+        hdr_cells[2].text = 'Зач.ед'
+        hdr_cells[3].text = 'Часы'
+        hdr_cells[6].text = 'оценка'
+        hdr_cells[7].text = 'дата'
+
+        self.set_cell_format(A)
+        self.set_cell_format(A1)
+        self.set_cell_format(A2)
+        self.set_cell_format(A3)
+        self.set_cell_format(A4)
+        self.set_cell_format(A5)
+        self.set_cell_format(hdr_cells[2])
+        self.set_cell_format(hdr_cells[3])
+        self.set_cell_format(hdr_cells[6])
+        self.set_cell_format(hdr_cells[7])
+
+        rows_to_modify = [0, 1]  # Specify the row indices you want to modify
+
+        for row_index in rows_to_modify:
+            row = table2.rows[row_index]
+            for cell in row.cells:
+                # Apply your modifications (e.g., vertical alignment) to each cell
+                self.set_vertical_alignment(cell, "center")
+
+        for index, subjects in enumerate(self.mismatch_xls):
+            for subject in subjects:
+                row_cells = table2.add_row().cells
+                row_cells[0].text = str(index + 1)
+                row_cells[1].text = subject
+                row_cells[2].text = str(int(int(subjects[subject][0]) / 36))
+                #row_cells[2].text = str(int(int(subjects[subject][0]) / 36))
+                row_cells[3].text = str(subjects[subject][0])
+                row_cells[4].text = subjects[subject][1]
+                row_cells[5].text = str(index)
+
+
+        column_index = [1, 2, 3, 4, 5, 6, 7]
+
+        # Start from the third row (index 2) and go through all the rows to make the font size 11
+        for row in table2.rows[2:]:
+            for column in column_index:
+                cell = row.cells[column]
+                for paragraph in cell.paragraphs:
+                    for run in paragraph.runs:
+                        run.font.size = Pt(11)
+
+        # making the rows to be aligned at the center
+        for row in table2.rows[2:]:
+            for cell in row.cells:
+                # Apply your modifications (e.g., vertical alignment) to each cell
+                self.set_vertical_alignment(cell, "center")
+                self.set_cell_format(cell, bold=False)
+
+
+        # 3rd table
+        table3 = doc.add_table(rows=2, cols=2)
+        column_index = [0, 1]
+        a = 'СТУДЕНТ ГРУППЫ:     ___________ /____________ \n' \
+            '                                    подпись	  ФИО   \n' \
+            'Контактный телефон: \n' \
+            'E-mail: \n'
+
+        b = 'ПРИНЯТО В РАБОТУ: \n' \
+            '' \
+            'Зам. начальника УО    ____________ /__________\n ' \
+            '                                        подпись	     ФИО   \n'
+
+        c = 'СОСТАВИЛ: \n ' \
+            'Зам. зав. каф. №22   __________ / А.Ю. Никифоров \n' \
+            '                                       подпись	      	  ФИО'
+
+        d = 'СОГЛАСОВАНО: \n' \
+            'Зам. директора ИОПП   ___________ /_Д.А. Самарченко_ \n' \
+            '                                        подпись	        ФИО '
+
+        lst = [a, b, c, d]
+        cnt = 0
+        for row in table3.rows:
+            for column in column_index:
+                cell = row.cells[column]
+                cell.text = lst[cnt]
+                cnt += 1
+
+
+
+        # Save the document
+        doc.save('example.docx')
+
 
 
 if __name__ == "__main__":

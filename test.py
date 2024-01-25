@@ -58,3 +58,14 @@ result_dict = read_and_save_to_dict(file_path, column_indices=selected_columns, 
 
 # Print the resulting dictionary
 #print(result_dict)
+
+# self.set_cell_format(A, '№')
+#         self.set_cell_format(A1, 'Название дисциплины из текущего РУПа /Название ранее сданной дисциплины')
+#         self.set_cell_format(A2, 'Объем текущего РУПа')
+#         self.set_cell_format(A3, 'З / Э/ ЗО')
+#         self.set_cell_format(A4, 'Семестр')
+#         self.set_cell_format(A5, 'Отметка о сдаче')
+#         self.set_cell_format(hdr_cells[2], 'Зач.ед')
+#         self.set_cell_format(hdr_cells[3], 'Часы')
+#         self.set_cell_format(hdr_cells[6], 'оценка')
+#         self.set_cell_format(hdr_cells[7], 'дата')
