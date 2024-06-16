@@ -30,6 +30,8 @@
 - Генерация документов с использованием шаблонов.
 
 **Скриншоты:**
+
+
 ![image](https://github.com/Nurkyial/research_work/assets/128979831/e17a306e-9e5c-45fe-8eab-7e65443517f2)
 
 
